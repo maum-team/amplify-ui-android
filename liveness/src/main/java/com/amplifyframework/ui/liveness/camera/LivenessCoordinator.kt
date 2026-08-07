@@ -47,6 +47,7 @@ import com.amplifyframework.ui.liveness.state.AttemptCounter
 import com.amplifyframework.ui.liveness.state.LivenessState
 import com.amplifyframework.ui.liveness.ui.Camera
 import com.amplifyframework.ui.liveness.ui.ChallengeOptions
+import com.amplifyframework.ui.liveness.ui.FaceLivenessExternalUiController
 import com.amplifyframework.ui.liveness.ui.VideoOptions
 import com.amplifyframework.ui.liveness.util.WebSocketCloseCode
 import java.util.Date
@@ -81,7 +82,8 @@ internal class LivenessCoordinator(
     private val challengeOptions: ChallengeOptions,
     videoOptions: VideoOptions,
     private val onChallengeComplete: OnChallengeComplete,
-    val onChallengeFailed: Consumer<FaceLivenessDetectionException>
+    val onChallengeFailed: Consumer<FaceLivenessDetectionException>,
+    private val externalUiController: FaceLivenessExternalUiController? = null
 ) {
 
     private val attemptCounter = AttemptCounter()
@@ -94,7 +96,8 @@ internal class LivenessCoordinator(
         disableStartView = disableStartView,
         onCaptureReady = this::processCaptureReady,
         onSessionError = this::processSessionError,
-        onFinalEventsSent = this::processFinalEventsSent
+        onFinalEventsSent = this::processFinalEventsSent,
+        externalUiController = externalUiController
     )
 
     private val preview = Preview.Builder().apply {

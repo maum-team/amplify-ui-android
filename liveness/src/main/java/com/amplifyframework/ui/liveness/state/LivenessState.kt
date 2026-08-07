@@ -32,6 +32,7 @@ import com.amplifyframework.ui.liveness.ml.FaceDetector
 import com.amplifyframework.ui.liveness.ml.FaceOval
 import com.amplifyframework.ui.liveness.model.FaceLivenessDetectionException
 import com.amplifyframework.ui.liveness.model.LivenessCheckState
+import com.amplifyframework.ui.liveness.ui.FaceLivenessExternalUiController
 import com.amplifyframework.ui.liveness.ui.helper.VideoViewportSize
 import com.amplifyframework.ui.liveness.util.WebSocketCloseCode
 import java.util.Date
@@ -48,6 +49,7 @@ internal data class LivenessState(
     val onCaptureReady: () -> Unit,
     val onSessionError: (FaceLivenessDetectionException, Boolean) -> Unit,
     val onFinalEventsSent: () -> Unit,
+    val externalUiController: FaceLivenessExternalUiController? = null,
 ) {
     var videoViewportSize: VideoViewportSize? by mutableStateOf(null)
     var livenessCheckState by mutableStateOf<LivenessCheckState>(
@@ -63,6 +65,7 @@ internal data class LivenessState(
     var loadingCameraPreview by mutableStateOf(false)
 
     private var initialStreamFace: InitialStreamFace? = null
+    private var challengeResponseFaceGuideRect: RectF? = null
     @VisibleForTesting
     var faceMatchOvalStart: Long? = null
     @VisibleForTesting
@@ -99,6 +102,7 @@ internal data class LivenessState(
         faceOvalMatchTimer?.cancel()
         readyForOval = false
         faceGuideRect = null
+        challengeResponseFaceGuideRect = null
         faceMatched = false
         if (stopLivenessSession) {
             livenessSessionInfo?.stopSession(webSocketCloseCode?.code)
@@ -120,6 +124,7 @@ internal data class LivenessState(
 
     fun onLivenessChallengeComplete() {
         val faceGuideRect = this.faceGuideRect
+        val responseFaceGuideRect = challengeResponseFaceGuideRect ?: faceGuideRect
         readyForOval = false
         this.faceGuideRect = null
         faceMatched = false
@@ -127,8 +132,8 @@ internal data class LivenessState(
             faceMatchOvalEnd = Date().time
         }
 
-        livenessCheckState = if (faceGuideRect != null) {
-            LivenessCheckState.Success(faceGuideRect)
+        livenessCheckState = if (responseFaceGuideRect != null) {
+            LivenessCheckState.Success(responseFaceGuideRect)
         } else {
             LivenessCheckState.Error
         }
@@ -247,8 +252,18 @@ internal data class LivenessState(
             }
 
             if (faceGuideRect == null) {
-                faceGuideRect =
-                    FaceOval.createBoundingRect(faceTargetChallenge!!)
+                if (
+                    externalUiController?.matchingOvalConfiguration != null &&
+                    videoViewportSize == null
+                ) {
+                    return true
+                }
+                val awsFaceGuideRect = FaceOval.createBoundingRect(faceTargetChallenge!!)
+                challengeResponseFaceGuideRect = awsFaceGuideRect
+                faceGuideRect = externalUiController?.resolveMatchingOvalRect(
+                    awsFaceGuideRect,
+                    videoViewportSize
+                ) ?: awsFaceGuideRect
             }
         }
 
@@ -257,7 +272,8 @@ internal data class LivenessState(
             val faceOvalPosition = FaceDetector.calculateFaceOvalPosition(
                 faceRect,
                 oval,
-                faceTargetChallenge!!.faceTargetMatching
+                faceTargetChallenge!!.faceTargetMatching,
+                externalUiController?.matchingToleranceMultiplier?.toFloat() ?: 1f
             )
 
             if (initialFaceOvalIou < 0) {
@@ -268,7 +284,8 @@ internal data class LivenessState(
                 faceRect,
                 oval,
                 faceTargetChallenge!!.faceTargetMatching,
-                initialFaceOvalIou
+                initialFaceOvalIou,
+                externalUiController?.matchingToleranceMultiplier?.toFloat() ?: 1f
             )
 
             detectedFaceMatchedOval = detectedFaceMatchedOval ||
