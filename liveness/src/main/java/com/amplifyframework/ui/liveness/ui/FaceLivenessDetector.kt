@@ -115,6 +115,33 @@ fun FaceLivenessDetector(
     onError: Consumer<FaceLivenessDetectionException>,
     challengeOptions: ChallengeOptions = ChallengeOptions(),
     videoOptions: VideoOptions = VideoOptions()
+) = FaceLivenessDetector(
+    sessionId = sessionId,
+    region = region,
+    credentialsProvider = credentialsProvider,
+    disableStartView = disableStartView,
+    onComplete = onComplete,
+    onError = onError,
+    challengeOptions = challengeOptions,
+    videoOptions = videoOptions,
+    externalUiController = null
+)
+
+/**
+ * Advanced overload for hosts that delegate presentation to an external UI controller.
+ * Capture, challenge timing, and AWS event delivery remain owned by this component.
+ */
+@Composable
+fun FaceLivenessDetector(
+    sessionId: String,
+    region: String,
+    credentialsProvider: AWSCredentialsProvider<AWSCredentials>? = null,
+    disableStartView: Boolean = false,
+    onComplete: Action,
+    onError: Consumer<FaceLivenessDetectionException>,
+    challengeOptions: ChallengeOptions = ChallengeOptions(),
+    videoOptions: VideoOptions = VideoOptions(),
+    externalUiController: FaceLivenessExternalUiController?
 ) {
     val scope = rememberCoroutineScope()
     val key = DetectorStateKey(sessionId, region, credentialsProvider, videoOptions)
@@ -158,6 +185,7 @@ fun FaceLivenessDetector(
                 disableStartView,
                 challengeOptions = challengeOptions,
                 videoOptions = videoOptions,
+                externalUiController = externalUiController,
                 onChallengeComplete = {
                     scope.launch {
                         // if we are already finished, we already provided a result in complete or failed
@@ -193,7 +221,8 @@ internal fun ChallengeView(
     challengeOptions: ChallengeOptions,
     videoOptions: VideoOptions,
     onChallengeComplete: OnChallengeComplete,
-    onChallengeFailed: Consumer<FaceLivenessDetectionException>
+    onChallengeFailed: Consumer<FaceLivenessDetectionException>,
+    externalUiController: FaceLivenessExternalUiController? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -215,7 +244,8 @@ internal fun ChallengeView(
                 challengeOptions,
                 videoOptions = videoOptions,
                 onChallengeComplete = { currentOnChallengeComplete() },
-                onChallengeFailed = { currentOnChallengeFailed.accept(it) }
+                onChallengeFailed = { currentOnChallengeFailed.accept(it) },
+                externalUiController = externalUiController
             )
         } catch (e: Exception) {
             currentOnChallengeFailed.accept(
@@ -233,9 +263,18 @@ internal fun ChallengeView(
 
     val livenessCoordinator = coordinator ?: return
     val livenessState = livenessCoordinator.livenessState
+    val rendersUiExternally = externalUiController?.rendersUiExternally == true
+
+    ExternalUiStateEffect(
+        controller = externalUiController,
+        state = livenessState,
+        context = context
+    )
 
     val localDensity = LocalDensity.current
-    val backgroundColor = if (livenessState.showingStartView) {
+    val backgroundColor = if (rendersUiExternally) {
+        Color.Black
+    } else if (livenessState.showingStartView) {
         MaterialTheme.colorScheme.background
     } else if (livenessState.faceGuideRect != null) {
         Color.White
@@ -248,13 +287,23 @@ internal fun ChallengeView(
             .background(backgroundColor)
             .onGloballyPositioned {
                 livenessState.updateVideoViewportSize(
-                    VideoViewportSize.create(it.size, localDensity)
+                    VideoViewportSize.create(
+                        containerSize = it.size,
+                        density = localDensity,
+                        usesAspectFill = externalUiController?.usesFullScreenCameraPreview == true
+                    )
                 )
             }
     ) {
         val videoViewportSize = livenessState.videoViewportSize
 
         if (videoViewportSize != null) {
+            ExternalOvalEffect(
+                controller = externalUiController,
+                oval = livenessState.faceGuideRect,
+                viewport = videoViewportSize
+            )
+
             Box(
                 modifier = Modifier
                     .size(videoViewportSize.viewportDpSize)
@@ -328,7 +377,7 @@ internal fun ChallengeView(
                     }
                 }
             } else {
-                livenessState.faceGuideRect?.let {
+                if (!rendersUiExternally) livenessState.faceGuideRect?.let {
                     FaceGuide(
                         modifier = Modifier
                             .fillMaxSize()
@@ -340,21 +389,13 @@ internal fun ChallengeView(
 
                 if (livenessState.faceMatched) {
                     if (livenessState.livenessSessionInfo.isFaceMovementAndLightChallenge()) {
-                        FreshnessChallenge(
-                            key,
+                        ExternalFreshnessChallenge(
+                            key = key,
                             modifier = Modifier.fillMaxSize(),
                             colors = livenessState.colorChallenge!!.challengeColors,
-                            onColorDisplayed = { currentColor, previousColor, sequenceNumber, colorStart ->
-                                livenessCoordinator.processColorDisplayed(
-                                    currentColor,
-                                    previousColor,
-                                    sequenceNumber,
-                                    colorStart
-                                )
-                            },
-                            onComplete = {
-                                livenessCoordinator.processLivenessCheckComplete()
-                            }
+                            controller = externalUiController,
+                            onColorDisplayed = livenessCoordinator::processColorDisplayed,
+                            onComplete = livenessCoordinator::processLivenessCheckComplete
                         )
                     } else {
                         LaunchedEffect(key) {
@@ -363,7 +404,7 @@ internal fun ChallengeView(
                     }
                 }
 
-                livenessState.faceGuideRect?.let {
+                if (!rendersUiExternally) livenessState.faceGuideRect?.let {
                     RecordingIndicator(
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -371,7 +412,7 @@ internal fun ChallengeView(
                     )
                 }
 
-                CancelChallengeButton(
+                if (!rendersUiExternally) CancelChallengeButton(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
@@ -382,7 +423,7 @@ internal fun ChallengeView(
                     )
                 }
 
-                Box(
+                if (!rendersUiExternally) Box(
                     modifier = Modifier
                         .size(videoViewportSize.viewportDpSize)
                         .align(Alignment.Center)

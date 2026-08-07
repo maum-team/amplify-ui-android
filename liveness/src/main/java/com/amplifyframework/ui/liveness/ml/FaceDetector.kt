@@ -496,19 +496,21 @@ internal class FaceDetector(private val livenessState: LivenessState) {
         fun calculateFaceOvalPosition(
             face: RectF,
             ovalRect: RectF,
-            faceOvalMatching: FaceTargetMatchingParameters
+            faceOvalMatching: FaceTargetMatchingParameters,
+            toleranceMultiplier: Float = 1f
         ): FaceOvalPosition {
+            val tolerance = toleranceMultiplier.coerceIn(1f, 1.25f)
             val intersection = intersectionOverUnion(face, ovalRect)
             val ovalMatchWidthThreshold =
-                ovalRect.width() * faceOvalMatching.targetIouWidthThreshold
+                ovalRect.width() * faceOvalMatching.targetIouWidthThreshold * tolerance
             val ovalMatchHeightThreshold =
-                ovalRect.height() * faceOvalMatching.targetIouHeightThreshold
+                ovalRect.height() * faceOvalMatching.targetIouHeightThreshold * tolerance
             val faceDetectionWidthThreshold =
                 ovalRect.width() * faceOvalMatching.faceIouWidthThreshold
             val faceDetectionHeightThreshold =
                 ovalRect.height() * faceOvalMatching.faceIouHeightThreshold
 
-            return if (intersection > faceOvalMatching.targetIouThreshold &&
+            return if (intersection > faceOvalMatching.targetIouThreshold / tolerance &&
                 abs(ovalRect.left - face.left) < ovalMatchWidthThreshold &&
                 abs(ovalRect.right - face.right) < ovalMatchWidthThreshold &&
                 abs(ovalRect.bottom - face.bottom) < ovalMatchHeightThreshold
@@ -535,14 +537,16 @@ internal class FaceDetector(private val livenessState: LivenessState) {
             face: RectF,
             ovalRect: RectF,
             faceOvalMatching: FaceTargetMatchingParameters,
-            initialIou: Float
+            initialIou: Float,
+            toleranceMultiplier: Float = 1f
         ): Float {
+            val tolerance = toleranceMultiplier.coerceIn(1f, 1.25f)
             val currentIou = intersectionOverUnion(face, ovalRect)
             return max(
                 min(
                     1f,
                     (0.75f * (currentIou - initialIou)) /
-                        (faceOvalMatching.targetIouThreshold - initialIou) + 0.25f
+                        (faceOvalMatching.targetIouThreshold / tolerance - initialIou) + 0.25f
                 ),
                 0f
             )
