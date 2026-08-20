@@ -19,8 +19,14 @@ package com.amplifyframework.ui.liveness.ui
 import android.content.Context
 import android.graphics.RectF
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import com.amplifyframework.predictions.aws.models.ColorDisplayInformation
 import com.amplifyframework.ui.liveness.camera.OnFreshnessColorDisplayed
 import com.amplifyframework.ui.liveness.model.LivenessCheckState
@@ -77,18 +83,51 @@ internal fun ExternalFreshnessChallenge(
     onColorDisplayed: OnFreshnessColorDisplayed,
     onComplete: () -> Unit
 ) {
-    LaunchedEffect(key, controller) {
-        controller?.start()
+    val complete = {
+        controller?.complete()
+        onComplete()
     }
 
+    if (controller?.rendersFreshnessExternally == true) {
+        var ready by remember(key, controller) { mutableStateOf(false) }
+        val frames = remember(key, colors) { colors.toExternalFreshnessFrames() }
+
+        LaunchedEffect(key, controller, frames) {
+            controller.prepareFreshness(frames) { ready = true }
+        }
+        DisposableEffect(key, controller) {
+            onDispose { controller.cancelPendingFreshness() }
+        }
+
+        if (ready) {
+            LaunchedEffect(key, controller) { controller.start() }
+            FreshnessChallenge(
+                key = key,
+                modifier = modifier.alpha(0f),
+                colors = colors,
+                onColorDisplayed = onColorDisplayed,
+                onComplete = complete
+            )
+        }
+        return
+    }
+
+    LaunchedEffect(key, controller) { controller?.start() }
     FreshnessChallenge(
         key = key,
         modifier = modifier,
         colors = colors,
         onColorDisplayed = onColorDisplayed,
-        onComplete = {
-            controller?.complete()
-            onComplete()
-        }
+        onComplete = complete
+    )
+}
+
+private fun List<ColorDisplayInformation>.toExternalFreshnessFrames() = mapIndexed { index, item ->
+    val previous = getOrNull(index - 1)?.color ?: item.color
+    FaceLivenessExternalFreshnessFrame(
+        currentColor = listOf(item.color.red, item.color.green, item.color.blue),
+        previousColor = listOf(previous.red, previous.green, previous.blue),
+        durationMilliseconds = item.duration.toDouble(),
+        shouldScroll = item.shouldScroll
     )
 }

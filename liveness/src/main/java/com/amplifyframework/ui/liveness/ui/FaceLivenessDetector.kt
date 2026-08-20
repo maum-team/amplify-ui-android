@@ -104,31 +104,7 @@ fun FaceLivenessDetector(
  * @param videoCodec
  * @param onComplete callback notifying a completed challenge
  * @param onError callback containing exception for cause
- */
-@Composable
-fun FaceLivenessDetector(
-    sessionId: String,
-    region: String,
-    credentialsProvider: AWSCredentialsProvider<AWSCredentials>? = null,
-    disableStartView: Boolean = false,
-    onComplete: Action,
-    onError: Consumer<FaceLivenessDetectionException>,
-    challengeOptions: ChallengeOptions = ChallengeOptions(),
-    videoOptions: VideoOptions = VideoOptions()
-) = FaceLivenessDetector(
-    sessionId = sessionId,
-    region = region,
-    credentialsProvider = credentialsProvider,
-    disableStartView = disableStartView,
-    onComplete = onComplete,
-    onError = onError,
-    challengeOptions = challengeOptions,
-    videoOptions = videoOptions,
-    externalUiController = null
-)
-
-/**
- * Advanced overload for hosts that delegate presentation to an external UI controller.
+ * @param externalUiController optional bridge for hosts that render the liveness UI outside Compose.
  * Capture, challenge timing, and AWS event delivery remain owned by this component.
  */
 @Composable
@@ -141,7 +117,7 @@ fun FaceLivenessDetector(
     onError: Consumer<FaceLivenessDetectionException>,
     challengeOptions: ChallengeOptions = ChallengeOptions(),
     videoOptions: VideoOptions = VideoOptions(),
-    externalUiController: FaceLivenessExternalUiController?
+    externalUiController: FaceLivenessExternalUiController? = null
 ) {
     val scope = rememberCoroutineScope()
     val key = DetectorStateKey(sessionId, region, credentialsProvider, videoOptions)

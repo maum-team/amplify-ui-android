@@ -40,6 +40,18 @@ data class FaceLivenessExternalMatchingOvalConfiguration(
     val referenceViewportHeight: Double
 )
 
+data class FaceLivenessExternalFreshnessFrame(
+    val currentColor: List<Int>,
+    val previousColor: List<Int>,
+    val durationMilliseconds: Double,
+    val shouldScroll: Boolean
+)
+
+data class FaceLivenessExternalFreshnessSequenceEvent(
+    val frames: List<FaceLivenessExternalFreshnessFrame>,
+    val nativeDispatchedAt: Long
+)
+
 /**
  * Optional presentation bridge for hosts that render Face Liveness UI outside Compose.
  * Camera capture, challenge ordering, video streaming, and AWS signaling remain native.
@@ -47,12 +59,16 @@ data class FaceLivenessExternalMatchingOvalConfiguration(
 class FaceLivenessExternalUiController {
     var onStarted: ((Long) -> Unit)? = null
     var onCompleted: ((Long) -> Unit)? = null
+    var onFreshnessSequencePrepared: ((FaceLivenessExternalFreshnessSequenceEvent) -> Unit)? = null
     var onUiStateChanged: ((FaceLivenessExternalUiStateEvent) -> Unit)? = null
     var onOvalChanged: ((FaceLivenessExternalOvalEvent) -> Unit)? = null
 
     var rendersUiExternally: Boolean = false
     var usesFullScreenCameraPreview: Boolean = false
+    var rendersFreshnessExternally: Boolean = false
     var matchingOvalConfiguration: FaceLivenessExternalMatchingOvalConfiguration? = null
+
+    private var pendingFreshnessStart: (() -> Unit)? = null
 
     /** `1` preserves the AWS client-side matching values. */
     var matchingToleranceMultiplier: Double = 1.0
@@ -63,6 +79,27 @@ class FaceLivenessExternalUiController {
 
     internal fun complete(timestamp: Long = System.currentTimeMillis()) {
         onCompleted?.invoke(timestamp)
+    }
+
+    internal fun prepareFreshness(
+        frames: List<FaceLivenessExternalFreshnessFrame>,
+        onReady: () -> Unit
+    ) {
+        pendingFreshnessStart = onReady
+        onFreshnessSequencePrepared?.invoke(
+            FaceLivenessExternalFreshnessSequenceEvent(
+                frames = frames,
+                nativeDispatchedAt = System.currentTimeMillis()
+            )
+        ) ?: acknowledgeFreshnessReady()
+    }
+
+    fun acknowledgeFreshnessReady() {
+        pendingFreshnessStart?.also { pendingFreshnessStart = null }?.invoke()
+    }
+
+    internal fun cancelPendingFreshness() {
+        pendingFreshnessStart = null
     }
 
     internal fun publishUiState(phase: String, instruction: String, progress: Double) {
@@ -123,5 +160,4 @@ class FaceLivenessExternalUiController {
         )
         return viewport.getUnscaledBoundingRect(targetFrame)
     }
-
 }
