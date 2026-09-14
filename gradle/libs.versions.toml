@@ -13,6 +13,7 @@ binary-compatibility = "0.18.1"
 cameraX = "1.4.2"
 compose-bom = "2026.03.00"
 coroutines = "1.7.3"
+datetime = { strictly = "0.7.1-0.6.x-compat" }
 desugar = "2.1.5"
 errorprone = "2.23.0"
 futures = "1.1.0"
@@ -64,6 +65,8 @@ androidx-compose-ui = { module = "androidx.compose.ui:ui" }
 androidx-compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 
 # Kotlin
+kotlin-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "datetime" }
+kotlin-datetime-jvm = { module = "org.jetbrains.kotlinx:kotlinx-datetime-jvm", version.ref = "datetime" }
 kotlin-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
 kotlin-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 
