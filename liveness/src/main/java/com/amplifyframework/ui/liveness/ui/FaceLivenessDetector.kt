@@ -110,6 +110,8 @@ fun FaceLivenessDetector(
  * the default button is aligned to the top end.
  * @param onComplete callback notifying a completed challenge
  * @param onError callback containing exception for cause
+ * @param externalUiController optional bridge for hosts that render the liveness UI outside Compose.
+ * Capture, challenge timing, and AWS event delivery remain owned by this component.
  */
 @Composable
 fun FaceLivenessDetector(
@@ -121,6 +123,7 @@ fun FaceLivenessDetector(
     onError: Consumer<FaceLivenessDetectionException>,
     challengeOptions: ChallengeOptions = ChallengeOptions(),
     videoOptions: VideoOptions = VideoOptions(),
+    externalUiController: FaceLivenessExternalUiController? = null,
     cancelButton: @Composable BoxScope.(onCancel: () -> Unit) -> Unit = { DefaultCancelButton(it) }
 ) {
     val scope = rememberCoroutineScope()
@@ -166,6 +169,7 @@ fun FaceLivenessDetector(
                 challengeOptions = challengeOptions,
                 videoOptions = videoOptions,
                 cancelButton = cancelButton,
+                externalUiController = externalUiController,
                 onChallengeComplete = {
                     scope.launch {
                         // if we are already finished, we already provided a result in complete or failed
@@ -202,7 +206,8 @@ internal fun ChallengeView(
     videoOptions: VideoOptions,
     cancelButton: @Composable BoxScope.(onCancel: () -> Unit) -> Unit,
     onChallengeComplete: OnChallengeComplete,
-    onChallengeFailed: Consumer<FaceLivenessDetectionException>
+    onChallengeFailed: Consumer<FaceLivenessDetectionException>,
+    externalUiController: FaceLivenessExternalUiController? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -242,9 +247,18 @@ internal fun ChallengeView(
 
     val livenessCoordinator = coordinator ?: return
     val livenessState = livenessCoordinator.livenessState
+    val rendersUiExternally = externalUiController?.rendersUiExternally == true
+
+    ExternalUiStateEffect(
+        controller = externalUiController,
+        state = livenessState,
+        context = context
+    )
 
     val localDensity = LocalDensity.current
-    val backgroundColor = if (livenessState.showingStartView) {
+    val backgroundColor = if (rendersUiExternally) {
+        Color.Black
+    } else if (livenessState.showingStartView) {
         MaterialTheme.colorScheme.background
     } else if (livenessState.faceGuideRect != null) {
         Color.White
@@ -257,13 +271,23 @@ internal fun ChallengeView(
             .background(backgroundColor)
             .onGloballyPositioned {
                 livenessState.updateVideoViewportSize(
-                    VideoViewportSize.create(it.size, localDensity)
+                    VideoViewportSize.create(
+                        containerSize = it.size,
+                        density = localDensity,
+                        usesAspectFill = externalUiController?.usesFullScreenCameraPreview == true
+                    )
                 )
             }
     ) {
         val videoViewportSize = livenessState.videoViewportSize
 
         if (videoViewportSize != null) {
+            ExternalOvalEffect(
+                controller = externalUiController,
+                oval = livenessState.faceGuideRect,
+                viewport = videoViewportSize
+            )
+
             Box(
                 modifier = Modifier
                     .size(videoViewportSize.viewportDpSize)
@@ -336,33 +360,27 @@ internal fun ChallengeView(
                     }
                 }
             } else {
-                livenessState.faceGuideRect?.let {
-                    FaceGuide(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .align(Alignment.Center),
-                        faceGuideRect = it,
-                        videoViewportSize = videoViewportSize
-                    )
+                if (!rendersUiExternally) {
+                    livenessState.faceGuideRect?.let {
+                        FaceGuide(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .align(Alignment.Center),
+                            faceGuideRect = it,
+                            videoViewportSize = videoViewportSize
+                        )
+                    }
                 }
 
                 if (livenessState.faceMatched) {
                     if (livenessState.livenessSessionInfo.isFaceMovementAndLightChallenge()) {
-                        FreshnessChallenge(
-                            key,
+                        ExternalFreshnessChallenge(
+                            key = key,
                             modifier = Modifier.fillMaxSize(),
                             colors = livenessState.colorChallenge!!.challengeColors,
-                            onColorDisplayed = { currentColor, previousColor, sequenceNumber, colorStart ->
-                                livenessCoordinator.processColorDisplayed(
-                                    currentColor,
-                                    previousColor,
-                                    sequenceNumber,
-                                    colorStart
-                                )
-                            },
-                            onComplete = {
-                                livenessCoordinator.processLivenessCheckComplete()
-                            }
+                            controller = externalUiController,
+                            onColorDisplayed = livenessCoordinator::processColorDisplayed,
+                            onComplete = livenessCoordinator::processLivenessCheckComplete
                         )
                     } else {
                         LaunchedEffect(key) {
@@ -371,74 +389,78 @@ internal fun ChallengeView(
                     }
                 }
 
-                ChallengeOverlayControls(
-                    showRecordingIndicator = livenessState.faceGuideRect != null,
-                    cancelButton = cancelButton
-                ) {
-                    livenessCoordinator.processSessionError(
-                        FaceLivenessDetectionException.UserCancelledException(),
-                        true
-                    )
+                if (!rendersUiExternally) {
+                    ChallengeOverlayControls(
+                        showRecordingIndicator = livenessState.faceGuideRect != null,
+                        cancelButton = cancelButton
+                    ) {
+                        livenessCoordinator.processSessionError(
+                            FaceLivenessDetectionException.UserCancelledException(),
+                            true
+                        )
+                    }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .size(videoViewportSize.viewportDpSize)
-                        .align(Alignment.Center)
-                ) {
-                    if (livenessState.faceGuideRect != null) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .padding(24.dp),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(5.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                if (!rendersUiExternally) {
+                    Box(
+                        modifier = Modifier
+                            .size(videoViewportSize.viewportDpSize)
+                            .align(Alignment.Center)
+                    ) {
+                        if (livenessState.faceGuideRect != null) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.TopCenter
                             ) {
-                                if (shouldDisplayInstruction(
-                                        livenessState.livenessCheckState,
-                                        livenessState.livenessSessionInfo?.challengeType
-                                    )
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    if (shouldDisplayInstruction(
+                                            livenessState.livenessCheckState,
+                                            livenessState.livenessSessionInfo?.challengeType
+                                        )
+                                    ) {
+                                        InstructionMessage(livenessState.livenessCheckState)
+                                    }
+                                    if (livenessState.livenessCheckState.instructionId ==
+                                        FaceDetector.FaceOvalPosition.TOO_FAR.instructionStringRes
+                                    ) {
+                                        val scaledOvalRect = livenessState.faceGuideRect?.let {
+                                            videoViewportSize.getScaledBoundingRect(it)
+                                        } ?: RectF()
+                                        val progressWidth = with(LocalDensity.current) {
+                                            ((scaledOvalRect.right - scaledOvalRect.left) * 0.6f).toDp()
+                                        }
+                                        LinearProgressIndicator(
+                                            progress = livenessState.faceMatchPercentage,
+                                            modifier = Modifier
+                                                .clip(MaterialTheme.shapes.small)
+                                                .width(progressWidth)
+                                                .height(12.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            trackColor = MaterialTheme.colorScheme.surface
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     InstructionMessage(livenessState.livenessCheckState)
                                 }
-                                if (livenessState.livenessCheckState.instructionId ==
-                                    FaceDetector.FaceOvalPosition.TOO_FAR.instructionStringRes
-                                ) {
-                                    val scaledOvalRect = livenessState.faceGuideRect?.let {
-                                        videoViewportSize.getScaledBoundingRect(it)
-                                    } ?: RectF()
-                                    val progressWidth = with(LocalDensity.current) {
-                                        ((scaledOvalRect.right - scaledOvalRect.left) * 0.6f).toDp()
-                                    }
-                                    LinearProgressIndicator(
-                                        progress = livenessState.faceMatchPercentage,
-                                        modifier = Modifier
-                                            .clip(MaterialTheme.shapes.small)
-                                            .width(progressWidth)
-                                            .height(12.dp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        trackColor = MaterialTheme.colorScheme.surface
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                InstructionMessage(livenessState.livenessCheckState)
                             }
                         }
                     }

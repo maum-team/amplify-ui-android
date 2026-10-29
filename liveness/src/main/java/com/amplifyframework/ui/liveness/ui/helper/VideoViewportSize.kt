@@ -46,22 +46,48 @@ internal data class VideoViewportSize(
         )
     }
 
+    fun getBoundingRectInContainer(boundingRectF: RectF): RectF {
+        val scaledRect = getScaledBoundingRect(boundingRectF)
+        val viewportLeft = (containerSize.width - viewportPixelSize.width) / 2f
+        val viewportTop = (containerSize.height - viewportPixelSize.height) / 2f
+        return RectF(
+            scaledRect.left + viewportLeft,
+            scaledRect.top + viewportTop,
+            scaledRect.right + viewportLeft,
+            scaledRect.bottom + viewportTop
+        )
+    }
+
     companion object {
-        fun create(containerSize: IntSize, density: Density): VideoViewportSize {
+        fun create(
+            containerSize: IntSize,
+            density: Density,
+            usesAspectFill: Boolean = false
+        ): VideoViewportSize {
             val videoContainerAspectRatio = containerSize.width.toFloat() / containerSize.height
 
-            val viewportPixelSize = if (
-                videoContainerAspectRatio == LivenessCoordinator.TARGET_ASPECT_RATIO
-            ) {
-                containerSize
-            } else if (videoContainerAspectRatio < LivenessCoordinator.TARGET_ASPECT_RATIO) {
-                val adjustedHeight =
-                    (containerSize.width * (1 / LivenessCoordinator.TARGET_ASPECT_RATIO)).toInt()
-                IntSize(containerSize.width, adjustedHeight)
-            } else {
-                val adjustedWidth =
-                    (containerSize.height * LivenessCoordinator.TARGET_ASPECT_RATIO).toInt()
-                IntSize(adjustedWidth, containerSize.height)
+            val viewportPixelSize = when {
+                videoContainerAspectRatio == LivenessCoordinator.TARGET_ASPECT_RATIO -> containerSize
+                usesAspectFill && videoContainerAspectRatio < LivenessCoordinator.TARGET_ASPECT_RATIO -> {
+                    val adjustedWidth =
+                        (containerSize.height * LivenessCoordinator.TARGET_ASPECT_RATIO).toInt()
+                    IntSize(adjustedWidth, containerSize.height)
+                }
+                usesAspectFill -> {
+                    val adjustedHeight =
+                        (containerSize.width / LivenessCoordinator.TARGET_ASPECT_RATIO).toInt()
+                    IntSize(containerSize.width, adjustedHeight)
+                }
+                videoContainerAspectRatio < LivenessCoordinator.TARGET_ASPECT_RATIO -> {
+                    val adjustedHeight =
+                        (containerSize.width / LivenessCoordinator.TARGET_ASPECT_RATIO).toInt()
+                    IntSize(containerSize.width, adjustedHeight)
+                }
+                else -> {
+                    val adjustedWidth =
+                        (containerSize.height * LivenessCoordinator.TARGET_ASPECT_RATIO).toInt()
+                    IntSize(adjustedWidth, containerSize.height)
+                }
             }
 
             val viewportDpSize = DpSize(
@@ -69,7 +95,11 @@ internal data class VideoViewportSize(
                 with(density) { viewportPixelSize.height.toDp() }
             )
 
-            return VideoViewportSize(containerSize, viewportPixelSize, viewportDpSize)
+            return VideoViewportSize(
+                containerSize = containerSize,
+                viewportPixelSize = viewportPixelSize,
+                viewportDpSize = viewportDpSize
+            )
         }
     }
 }

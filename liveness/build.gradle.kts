@@ -61,6 +61,14 @@ dependencies {
 
     implementation(libs.kotlin.serialization.json)
 
+    // AWS Smithy still uses kotlinx.datetime.Instant and Clock, removed in regular 0.7.x releases.
+    implementation(libs.kotlin.datetime)
+    constraints {
+        implementation(libs.kotlin.datetime.jvm) {
+            because("Keep the JVM artifact compatible with AWS Smithy's datetime 0.6.x API usage")
+        }
+    }
+
     implementation(libs.litert)
     implementation(libs.litert.support.api)
 
